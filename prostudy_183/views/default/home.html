@@ -1,0 +1,25 @@
+{{extend "layout.html"}}
+
+<head>
+  <title>Home Page</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+
+<ul class="nav-header text-right">
+
+    <button class="btn btn-primary">Download App</button>
+
+    <a href="{{=URL('default', 'user', args=['register'])}}" class="btn btn-primary">Create account</a>
+
+    <a href="{{=URL('default', 'user', args=['login'])}}" class="btn btn-primary">Log In</a>
+
+
+</ul>
+
+<div class="container">
+    <h1 class="text-center">Pro-Study</h1>
+
+    <h3 class="text-center">Do your work with Pro Study</h3> <br>
+
+</div>

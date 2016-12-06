@@ -1,0 +1,432 @@
+(dp1
+S'output'
+p2
+S"<type 'exceptions.AttributeError'> 'NoneType' object has no attribute 'time_total'"
+p3
+sS'layer'
+p4
+S'/Users/apple/Desktop/web2py/applications/prostudy_183/controllers/api.py'
+p5
+sS'code'
+p6
+S'# Create by Weikai Wu\n\nfrom datetime import timedelta\n\n\ndef get_user_name_from_email(email):\n    """Returns a string corresponding to the user first and last names,\n    given the user email."""\n    u = db(db.auth_user.email == email).select().first()\n    if u is None:\n        return \'None\'\n    else:\n        return \' \'.join([u.first_name, u.last_name])\n\n\n@auth.requires_signature()\ndef add_task():\n    # request.vars is the object sent from local server (default_index.js)\n    name = request.vars.task_content\n    cate = request.vars.task_category\n    time = int(request.vars.task_time) * 60  # time is in seconds\n\n    if auth.user_id:  # if logged in\n        # add to database\n        t_id = db.task.insert(\n            task_content=name,\n            category=cate,\n            time_remained=time,\n            time_total=time\n        )\n        # has to return a dictionary\n        # so that you can call data.id, data.name, data.cate, and data.time in local server (default_index.js)\n        return response.json(dict(id=t_id, name=name, cate=cate, time=time))\n    return \'failed\'\n\n\n@auth.requires_signature()\ndef add_record():\n    db.record.insert(task=request.vars.task,\n                     time_used=request.vars.time_used,\n                     record_type=request.vars.record_type)\n    return \'ok\'\n\n\ndef get_tasks():\n    logged_in = True\n    has_more_tasks = False\n    tasklist = []\n    current_usr_email = auth.user.email if auth.user_id else None\n    if auth.user_id:\n        start_idx = int(request.vars.start_idx) if request.vars.start_idx is not None else 0\n        end_idx = int(request.vars.end_idx) if request.vars.end_idx is not None else 0\n        rows = db(db.task.user_email == auth.user.email).select(db.task.ALL, orderby=~db.task.created_on,\n                                                                limitby=(start_idx, end_idx + 1))\n        for i, r in enumerate(rows):\n            if i < end_idx - start_idx:\n                if auth.user.email == r.user_email:\n                    t = dict(\n                        id=r.id,\n                        name=r.task_content,\n                        cate=r.category,\n                        time=r.time_remained,\n                        time_t=r.time_total\n\n                    )\n                    tasklist.append(t)\n            else:\n                has_more_tasks = True\n                break\n    else:\n        logged_in = False\n    return response.json(dict(\n        logged_in=logged_in,\n        has_more_tasks=has_more_tasks,\n        tasklist=tasklist,\n        current_usr_email=current_usr_email\n    ))\n\n\ndef get_records():\n    logged_in = True\n    has_more_records = False\n    recordlist = []\n    current_usr_email = auth.user.email if auth.user_id else None\n    if auth.user_id:\n        start_idx = int(request.vars.start_idx) if request.vars.start_idx is not None else 0\n        end_idx = int(request.vars.end_idx) if request.vars.end_idx is not None else 0\n        rows = db(db.record.user_email == auth.user.email).select(db.record.ALL, orderby=~db.record.created_on,\n                                                                  limitby=(start_idx, end_idx + 1))\n        for i, r in enumerate(rows):\n            if i < end_idx - start_idx:\n                if auth.user.email == r.user_email:\n                    t = dict(task=r.task,\n                             time_used=r.time_used,\n                             record_type=r.record_type)\n                    recordlist.append(t)\n            else:\n                has_more_records = True\n                break\n    else:\n        logged_in = False\n    return response.json(dict(\n        logged_in=logged_in,\n        has_more_records=has_more_records,\n        recordlist=recordlist,\n        current_usr_email=current_usr_email\n    ))\n\n\n@auth.requires_signature()\ndef del_task():\n    if auth.user_id:\n        del_name = db.task[request.vars.task_id].task_content\n        db(db.task.id == request.vars.task_id).delete() # delete the task\n        db(db.record.task == del_name).delete() # delete all associate records\n        return \'ok\'\n    return \'failure\'\n\n\n@auth.requires_signature()\ndef del_all_records():\n    db(db.record.user_email == auth.user.email).delete()\n    return \'ok\'\n\n\n@auth.requires_signature()\ndef update_time():\n    time = int(request.vars.time_remained)\n    db(db.task.id == request.vars.task_id).update(time_remained=time)\n    if request.vars.time_total:\n        time_total = db.task[request.vars.task_id].time_total\n        time_total += time\n        db(db.task.id == request.vars.task_id).update(time_total=time_total)\n    return \'ok\'\n\n# mathlab plot functions by Weikai Wu\n# no longer used\n\n\ndef get_pie_graph_all_task():\n    if not auth.user_id:\n        return plot_pie(\'\', [], [], [])\n    # do not select tasks that have not yet started\n    rows = db((db.task.user_email == auth.user.email)\n              & (db.task.time_total != db.task.time_remained)).select(db.task.ALL, orderby=~db.task.created_on)\n    time_used_list = []\n    explode = []\n    labels = []\n    for r in rows:\n        time_used_list.append(float(r.time_total - r.time_remained))\n        labels.append(r.task_content)\n        if r.category == \'p\':\n            explode.append(0.1)\n        else:\n            explode.append(0.0)\n    total_time_used = sum(time_used_list)\n    percentiles = [t / total_time_used for t in time_used_list]\n    response.headers[\'Content-Type\'] = \'image/png\'\n    return plot_pie(\'All Tasks\', percentiles, explode, labels)\n\n\ndef get_pie_graph_all_task_data():\n    time_used_list = []\n    explode = []\n    labels = []\n    if not auth.user_id:\n        return response.json(dict(data=[], labels=[]))\n    # do not select tasks that have not yet started\n    rows = db((db.task.user_email == auth.user.email)\n              & (db.task.time_total != db.task.time_remained)).select(db.task.ALL, orderby=~db.task.created_on)\n\n    for r in rows:\n        time_used_list.append(float(r.time_total - r.time_remained))\n        labels.append(r.task_content)\n        if r.category == \'p\':\n            explode.append(0.1)\n        else:\n            explode.append(0.0)\n    total_time_used = sum(time_used_list)\n    percentiles = [t / total_time_used for t in time_used_list]\n    return response.json(dict(data=percentiles, labels=labels))\n\n\n###################################The following codes were written by Qin Jingfei###########################################\ndef get_pie_graph_productive_data():\n    time_used_list = []\n    labels = []\n    if not auth.user_id:\n        return response.json(dict(data=[], labels=[], colors=[]))\n    # select all the productive task of the current user\n    # do not select tasks that have not yet started\n    rows = db((db.task.user_email == auth.user.email)\n              & (db.task.time_total != db.task.time_remained)\n              & (db.task.category == \'p\')).select(db.task.ALL, orderby=~db.task.created_on)\n    for r in rows:\n        time_used_list.append(float(r.time_total - r.time_remained))\n        labels.append(r.task_content)\n    total_time_used = sum(time_used_list)\n    percentiles = [t / total_time_used for t in time_used_list]\n    # largest sector spread out a bit\n    explode = [0.0] * len(labels)\n    if len(time_used_list) != 0:\n        explode[time_used_list.index(max(time_used_list))] = 0.1\n    return response.json(dict(data=percentiles, labels=labels))\n\n\ndef get_pie_graph_versus_data():\n    percentiles = []\n    labels = []\n    colors = []\n\n    if not auth.user_id:\n        return response.json(dict(data=[], labels=[], colors=[]))\n\n    rows = db(db.task.user_email == auth.user.email).select(db.task.ALL, orderby=~db.task.created_on)\n    p_total_times, np_total_times, n_total_times = 0.0, 0.0, 0.0\n    for r in rows:\n        time_used = float(r.time_total - r.time_remained)\n        if r.category is \'p\':\n            p_total_times += time_used\n        elif r.category == \'np\':\n            np_total_times += time_used\n        elif r.category is \'n\':\n            n_total_times += time_used\n\n    if p_total_times != 0.0:\n        percentiles.append(p_total_times)\n        labels.append(\'Productive\')\n        colors.append(\'lightgreen\')\n    if np_total_times != 0.0:\n        percentiles.append(np_total_times)\n        labels.append(\'Non-Prod\')\n        colors.append(\'skyblue\')\n    if n_total_times != 0.0:\n        percentiles.append(n_total_times)\n        labels.append(\'Necessary\')\n        colors.append(\'firebrick\')\n\n    return response.json(dict(data=percentiles, labels=labels, colors=colors))\n\n\ndef get_bar_data():\n    data = [0] * 7\n    labels = []\n\n    if not auth.user_id:\n        return response.json(dict(data=[], labels=[]))\n    rows = db(db.task.user_email == auth.user.email).select(db.task.ALL, orderby=~db.task.updated_on)\n    # today\'s time\n    a = datetime.datetime.utcnow()\n    labels.append((a - timedelta(days=6)).strftime("%m/%d"))\n    labels.append((a - timedelta(days=5)).strftime("%m/%d"))\n    labels.append((a - timedelta(days=4)).strftime("%m/%d"))\n    labels.append((a - timedelta(days=3)).strftime("%m/%d"))\n    labels.append((a - timedelta(days=2)).strftime("%m/%d"))\n    labels.append((a - timedelta(days=1)).strftime("%m/%d"))\n    labels.append(a.strftime("%m/%d"))\n\n    for r in rows:\n        if datetime.datetime.strftime(r.updated_on, \'%m/%d\') == a.strftime("%m/%d"):\n            if r.time_total - r.time_remained:\n                data[6] += 1\n        elif datetime.datetime.strftime(r.updated_on, \'%m/%d\') == (a-timedelta(days=1)).strftime("%m/%d"):\n            if r.time_total - r.time_remained:\n                data[5] += 1\n        elif datetime.datetime.strftime(r.updated_on, \'%m/%d\') == (a-timedelta(days=2)).strftime("%m/%d"):\n            if r.time_total - r.time_remained:\n                data[4] += 1\n        elif datetime.datetime.strftime(r.updated_on, \'%m/%d\') == (a-timedelta(days=3)).strftime("%m/%d"):\n            if r.time_total - r.time_remained:\n                data[3] += 1\n        elif datetime.datetime.strftime(r.updated_on, \'%m/%d\') == (a-timedelta(days=4)).strftime("%m/%d"):\n            if r.time_total - r.time_remained:\n                data[2] += 1\n        elif datetime.datetime.strftime(r.updated_on, \'%m/%d\') == (a-timedelta(days=5)).strftime("%m/%d"):\n            if r.time_total - r.time_remained:\n                data[1] += 1\n        elif datetime.datetime.strftime(r.updated_on, \'%m/%d\') == (a-timedelta(days=6)).strftime("%m/%d"):\n            if r.time_total - r.time_remained:\n                data[0] += 1\n\n    return response.json(dict(data=data, labels=labels))\n\n\n###################################The codes above were written by Qin Jingfei###########################################\n\n# the following is no longer used - Weikai Wu\n\n\ndef get_pie_graph_productive():\n    if not auth.user_id:\n        return plot_pie(\'\', [], [], [])\n    # select all the productive task of the current user\n    # do not select tasks that have not yet started\n    rows = db((db.task.user_email == auth.user.email)\n              & (db.task.time_total != db.task.time_remained)\n              & (db.task.category == \'p\')).select(db.task.ALL, orderby=~db.task.created_on)\n    time_used_list = []\n    labels = []\n    for r in rows:\n        time_used_list.append(float(r.time_total - r.time_remained))\n        labels.append(r.task_content)\n    total_time_used = sum(time_used_list)\n    percentiles = [t / total_time_used for t in time_used_list]\n    # largest sector spread out a bit\n    explode = [0.0] * len(labels)\n    if len(time_used_list) != 0:\n        explode[time_used_list.index(max(time_used_list))] = 0.1\n    response.headers[\'Content-Type\'] = \'image/png\'\n    return plot_pie(\'Productive Tasks Only\', percentiles, explode, labels)\n\n\ndef get_pie_graph_versus():\n    if not auth.user_id:\n        return plot_pie(\'\', [], [], [])\n    rows = db(db.task.user_email == auth.user.email).select(db.task.ALL, orderby=~db.task.created_on)\n    p_total_times, np_total_times, n_total_times = 0.0, 0.0, 0.0\n    for r in rows:\n        time_used = float(r.time_total - r.time_remained)\n        if r.category is \'p\':\n            p_total_times += time_used\n        elif r.category == \'np\':\n            np_total_times += time_used\n        elif r.category is \'n\':\n            n_total_times += time_used\n    percentiles = []\n    labels = []\n    explode = []\n    colors = []\n    total_times = p_total_times + np_total_times + n_total_times\n    if p_total_times != 0.0:\n        percentiles.append(p_total_times / total_times)\n        labels.append(\'Productive\')\n        explode.append(0.1)\n        colors.append(\'lightgreen\')\n    if np_total_times != 0.0:\n        percentiles.append(np_total_times / total_times)\n        labels.append(\'Non-Prod\')\n        explode.append(0.0)\n        colors.append(\'skyblue\')\n    if n_total_times != 0.0:\n        percentiles.append(n_total_times / total_times)\n        labels.append(\'Necessary\')\n        explode.append(0.0)\n        colors.append(\'firebrick\')\n    response.headers[\'Content-Type\'] = \'image/png\'\n    return plot_pie(\'Category Sectors\', percentiles, explode, labels, colors)\n\n\n# check if it\'s none graph\n# we can\'t tell the graph returned by get_graph functions is what\n\n\ndef check_graph_all_task():\n    rows = db((db.task.user_email == auth.user.email)\n              & (db.task.time_total != db.task.time_remained)).select(db.task.ALL, orderby=~db.task.created_on)\n    has_graph_all_tasks = True\n    if len(rows) is 0:\n        has_graph_all_tasks = False\n    return response.json(dict(has_graph_all_tasks=has_graph_all_tasks))\n\n\ndef check_graph_productive():\n    rows = db((db.task.user_email == auth.user.email)\n              & (db.task.time_total != db.task.time_remained)\n              & (db.task.category == \'p\')).select(db.task.ALL, orderby=~db.task.created_on)\n    has_graph_productive = True\n    if len(rows) is 0:\n        has_graph_productive = False\n    return response.json(dict(has_graph_productive=has_graph_productive))\n\n\ndef check_graph_versus():\n    rows = db(db.task.user_email == auth.user.email).select(db.task.ALL, orderby=~db.task.created_on)\n    has_graph_versus = True\n    if len(rows) is 0:\n        has_graph_versus = False\n    return response.json(dict(has_graph_versus=has_graph_versus))\n\n# Create by Weikai Wu\n\nresponse._vars=response._caller(update_time)\n'
+p7
+sS'snapshot'
+p8
+(dp9
+S'exception'
+p10
+(dp11
+S'__hash__'
+p12
+S"<method-wrapper '__hash__' of exceptions.AttributeError object>"
+p13
+sS'__setattr__'
+p14
+S"<method-wrapper '__setattr__' of exceptions.AttributeError object>"
+p15
+sS'__reduce_ex__'
+p16
+S'<built-in method __reduce_ex__ of exceptions.AttributeError object>'
+p17
+sS'__getslice__'
+p18
+S"<method-wrapper '__getslice__' of exceptions.AttributeError object>"
+p19
+sS'__getitem__'
+p20
+S"<method-wrapper '__getitem__' of exceptions.AttributeError object>"
+p21
+sS'__setstate__'
+p22
+S'<built-in method __setstate__ of exceptions.AttributeError object>'
+p23
+sS'args'
+p24
+S'("\'NoneType\' object has no attribute \'time_total\'",)'
+p25
+sS'__reduce__'
+p26
+S'<built-in method __reduce__ of exceptions.AttributeError object>'
+p27
+sS'__str__'
+p28
+S"<method-wrapper '__str__' of exceptions.AttributeError object>"
+p29
+sS'__format__'
+p30
+S'<built-in method __format__ of exceptions.AttributeError object>'
+p31
+sS'__getattribute__'
+p32
+S"<method-wrapper '__getattribute__' of exceptions.AttributeError object>"
+p33
+sS'__class__'
+p34
+S"<type 'exceptions.AttributeError'>"
+p35
+sS'__unicode__'
+p36
+S'<built-in method __unicode__ of exceptions.AttributeError object>'
+p37
+sS'__delattr__'
+p38
+S"<method-wrapper '__delattr__' of exceptions.AttributeError object>"
+p39
+sS'__subclasshook__'
+p40
+S'<built-in method __subclasshook__ of type object>'
+p41
+sS'__repr__'
+p42
+S"<method-wrapper '__repr__' of exceptions.AttributeError object>"
+p43
+sS'__dict__'
+p44
+S'{}'
+p45
+sS'__sizeof__'
+p46
+S'<built-in method __sizeof__ of exceptions.AttributeError object>'
+p47
+sS'__doc__'
+p48
+S"'Attribute not found.'"
+p49
+sS'__init__'
+p50
+S"<method-wrapper '__init__' of exceptions.AttributeError object>"
+p51
+sS'__new__'
+p52
+S'<built-in method __new__ of type object>'
+p53
+ssS'evalue'
+p54
+S"'NoneType' object has no attribute 'time_total'"
+p55
+sS'request'
+p56
+cgluon.html
+XML_unpickle
+p57
+(S's\xd7q\x00\x00<div><table><tr><td style="font-weight:bold;vertical-align:top;">ajax</td><td style="vertical-align:top;">:</td><td><div>True</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">application</td><td style="vertical-align:top;">:</td><td><div>prostudy_183</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">args</td><td style="vertical-align:top;">:</td><td><div><table></table></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">cid</td><td style="vertical-align:top;">:</td><td><div>None</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">client</td><td style="vertical-align:top;">:</td><td><div>127.0.0.1</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">controller</td><td style="vertical-align:top;">:</td><td><div>api</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">cookies</td><td style="vertical-align:top;">:</td><td><div><table><tr><td style="font-weight:bold;vertical-align:top;">session_id_admin</td><td style="vertical-align:top;">:</td><td><div>127.0.0.1-f9a5c32c-ff22-460d-b099-2308087cb55f<table><tr><td style="font-weight:bold;vertical-align:top;">comment</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">domain</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">expires</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">httponly</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">max-age</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">path</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">secure</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">version</td><td style="vertical-align:top;">:</td><td><div></div></td></tr></table></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">session_id_hw4</td><td style="vertical-align:top;">:</td><td><div>3:dd15e044-d8b8-49df-aa36-a8af7130cbdf<table><tr><td style="font-weight:bold;vertical-align:top;">comment</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">domain</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">expires</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">httponly</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">max-age</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">path</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">secure</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">version</td><td style="vertical-align:top;">:</td><td><div></div></td></tr></table></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">session_id_prostudy</td><td style="vertical-align:top;">:</td><td><div>127.0.0.1-66e08a60-e859-4b1a-b508-f5f84fb58da3<table><tr><td style="font-weight:bold;vertical-align:top;">comment</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">domain</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">expires</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">httponly</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">max-age</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">path</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">secure</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">version</td><td style="vertical-align:top;">:</td><td><div></div></td></tr></table></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">session_id_prostudy2</td><td style="vertical-align:top;">:</td><td><div>127.0.0.1-a865abd6-c808-4ff5-9fef-119f0985d012<table><tr><td style="font-weight:bold;vertical-align:top;">comment</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">domain</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">expires</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">httponly</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">max-age</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">path</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">secure</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">version</td><td style="vertical-align:top;">:</td><td><div></div></td></tr></table></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">session_id_prostudy_183</td><td style="vertical-align:top;">:</td><td><div>127.0.0.1-b6958738-1052-4328-9d5b-fef8c6937a84<table><tr><td style="font-weight:bold;vertical-align:top;">comment</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">domain</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">expires</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">httponly</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">max-age</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">path</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">secure</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">version</td><td style="vertical-align:top;">:</td><td><div></div></td></tr></table></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">session_id_welcome</td><td style="vertical-align:top;">:</td><td><div>127.0.0.1-369b7b56-e3d5-4479-99a4-a8ac75962bc4<table><tr><td style="font-weight:bold;vertical-align:top;">comment</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">domain</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">expires</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">httponly</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">max-age</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">path</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">secure</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">version</td><td style="vertical-align:top;">:</td><td><div></div></td></tr></table></div></td></tr></table></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">env</td><td style="vertical-align:top;">:</td><td><div><table><tr><td style="font-weight:bold;vertical-align:top;">CONTENT_LENGTH</td><td style="vertical-align:top;">:</td><td><div>47</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">CONTENT_TYPE</td><td style="vertical-align:top;">:</td><td><div>application/x-www-form-urlencoded; charset=UTF-8</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">HTTP_ACCEPT</td><td style="vertical-align:top;">:</td><td><div>*/*</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">HTTP_ACCEPT_ENCODING</td><td style="vertical-align:top;">:</td><td><div>gzip, deflate</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">HTTP_ACCEPT_LANGUAGE</td><td style="vertical-align:top;">:</td><td><div>en-us</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">HTTP_CONNECTION</td><td style="vertical-align:top;">:</td><td><div>keep-alive</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">HTTP_CONTENT_LENGTH</td><td style="vertical-align:top;">:</td><td><div>47</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">HTTP_CONTENT_TYPE</td><td style="vertical-align:top;">:</td><td><div>application/x-www-form-urlencoded; charset=UTF-8</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">HTTP_COOKIE</td><td style="vertical-align:top;">:</td><td><div>session_id_prostudy_183=127.0.0.1-b6958738-1052-4328-9d5b-fef8c6937a84; session_id_admin=127.0.0.1-f9a5c32c-ff22-460d-b099-2308087cb55f; session_id_welcome=127.0.0.1-369b7b56-e3d5-4479-99a4-a8ac75962bc4; session_id_prostudy2=127.0.0.1-a865abd6-c808-4ff5-9fef-119f0985d012; session_id_prostudy=127.0.0.1-66e08a60-e859-4b1a-b508-f5f84fb58da3; session_id_hw4=&quot;3:dd15e044-d8b8-49df-aa36-a8af7130cbdf&quot;</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">HTTP_HOST</td><td style="vertical-align:top;">:</td><td><div>127.0.0.1:8000</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">HTTP_ORIGIN</td><td style="vertical-align:top;">:</td><td><div>http://127.0.0.1:8000</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">HTTP_REFERER</td><td style="vertical-align:top;">:</td><td><div>http://127.0.0.1:8000/prostudy_183/default/index</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">HTTP_USER_AGENT</td><td style="vertical-align:top;">:</td><td><div>Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_1) AppleWebKit/602.2.14 (KHTML, like Gecko) Version/10.0.1 Safari/602.2.14</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">HTTP_X_REQUESTED_WITH</td><td style="vertical-align:top;">:</td><td><div>XMLHttpRequest</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">PATH_INFO</td><td style="vertical-align:top;">:</td><td><div>/prostudy_183/api/update_time</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">QUERY_STRING</td><td style="vertical-align:top;">:</td><td><div>_signature=cb1dab662935e9cbe4e073dd28b3ff7644fe9909</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">REMOTE_ADDR</td><td style="vertical-align:top;">:</td><td><div>127.0.0.1</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">REMOTE_PORT</td><td style="vertical-align:top;">:</td><td><div>65087</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">REQUEST_METHOD</td><td style="vertical-align:top;">:</td><td><div>POST</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">SCRIPT_NAME</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">SERVER_NAME</td><td style="vertical-align:top;">:</td><td><div>appledeMacBook-Air.local</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">SERVER_PORT</td><td style="vertical-align:top;">:</td><td><div>8000</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">SERVER_PROTOCOL</td><td style="vertical-align:top;">:</td><td><div>HTTP/1.1</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">SERVER_SOFTWARE</td><td style="vertical-align:top;">:</td><td><div>Rocket 1.2.6</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">app_folders</td><td style="vertical-align:top;">:</td><td><div>set([&#x27;/Users/apple/Desktop/web2py/applications/prostudy_183/&#x27;, &#x27;/Users/apple/Desktop/web2py/applications/welcome/&#x27;, &#x27;/Users/apple/Desktop/web2py/applications/admin/&#x27;])</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">applications_parent</td><td style="vertical-align:top;">:</td><td><div>/Users/apple/Desktop/web2py</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">cmd_args</td><td style="vertical-align:top;">:</td><td><div><table></table></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">cmd_options</td><td style="vertical-align:top;">:</td><td><div>&lt;Values at 0x105613368: {&#x27;verbose&#x27;: False, &#x27;ip&#x27;: &#x27;127.0.0.1&#x27;, &#x27;debuglevel&#x27;: 30, &#x27;with_scheduler&#x27;: False, &#x27;shutdown_timeout&#x27;: 5, &#x27;taskbar&#x27;: False, &#x27;with_coverage&#x27;: False, &#x27;pid_filename&#x27;: &#x27;httpserver.pid&#x27;, &#x27;maxthreads&#x27;: None, &#x27;softcron&#x27;: False, &#x27;server_name&#x27;: &#x27;appledeMacBook-Air.local&#x27;, &#x27;bpython&#x27;: False, &#x27;nogui&#x27;: False, &#x27;port&#x27;: 8000, &#x27;print_errors&#x27;: False, &#x27;extcron&#x27;: False, &#x27;runcron&#x27;: False, &#x27;run_system_tests&#x27;: False, &#x27;test&#x27;: None, &#x27;folder&#x27;: &#x27;/Users/apple/Desktop/web2py&#x27;, &#x27;config&#x27;: &#x27;&#x27;, &#x27;minthreads&#x27;: None, &#x27;shell&#x27;: None, &#x27;run&#x27;: &#x27;&#x27;, &#x27;log_filename&#x27;: &#x27;httpserver.log&#x27;, &#x27;profiler_dir&#x27;: None, &#x27;args&#x27;: [&#x27;&#x27;], &#x27;socket_timeout&#x27;: 5, &#x27;ssl_ca_certificate&#x27;: None, &#x27;scheduler&#x27;: None, &#x27;interfaces&#x27;: None, &#x27;ssl_private_key&#x27;: &#x27;&#x27;, &#x27;gae&#x27;: None, &#x27;password&#x27;: &#x27;******&#x27;, &#x27;request_queue_size&#x27;: 5, &#x27;ssl_certificate&#x27;: &#x27;&#x27;, &#x27;cronjob&#x27;: False, &#x27;numthreads&#x27;: None, &#x27;quiet&#x27;: False, &#x27;import_models&#x27;: False, &#x27;timeout&#x27;: 10, &#x27;plain&#x27;: False, &#x27;nobanner&#x27;: False}&gt;</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">content_length</td><td style="vertical-align:top;">:</td><td><div>47</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">content_type</td><td style="vertical-align:top;">:</td><td><div>application/x-www-form-urlencoded; charset=UTF-8</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">db_sessions</td><td style="vertical-align:top;">:</td><td><div>set([])</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">debugging</td><td style="vertical-align:top;">:</td><td><div>False</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">gluon_parent</td><td style="vertical-align:top;">:</td><td><div>/Users/apple/Desktop/web2py</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">http_accept</td><td style="vertical-align:top;">:</td><td><div>*/*</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">http_accept_encoding</td><td style="vertical-align:top;">:</td><td><div>gzip, deflate</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">http_accept_language</td><td style="vertical-align:top;">:</td><td><div>en-us</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">http_connection</td><td style="vertical-align:top;">:</td><td><div>keep-alive</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">http_content_length</td><td style="vertical-align:top;">:</td><td><div>47</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">http_content_type</td><td style="vertical-align:top;">:</td><td><div>application/x-www-form-urlencoded; charset=UTF-8</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">http_cookie</td><td style="vertical-align:top;">:</td><td><div>session_id_prostudy_183=127.0.0.1-b6958738-1052-4328-9d5b-fef8c6937a84; session_id_admin=127.0.0.1-f9a5c32c-ff22-460d-b099-2308087cb55f; session_id_welcome=127.0.0.1-369b7b56-e3d5-4479-99a4-a8ac75962bc4; session_id_prostudy2=127.0.0.1-a865abd6-c808-4ff5-9fef-119f0985d012; session_id_prostudy=127.0.0.1-66e08a60-e859-4b1a-b508-f5f84fb58da3; session_id_hw4=&quot;3:dd15e044-d8b8-49df-aa36-a8af7130cbdf&quot;</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">http_host</td><td style="vertical-align:top;">:</td><td><div>127.0.0.1:8000</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">http_origin</td><td style="vertical-align:top;">:</td><td><div>http://127.0.0.1:8000</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">http_referer</td><td style="vertical-align:top;">:</td><td><div>http://127.0.0.1:8000/prostudy_183/default/index</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">http_user_agent</td><td style="vertical-align:top;">:</td><td><div>Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_1) AppleWebKit/602.2.14 (KHTML, like Gecko) Version/10.0.1 Safari/602.2.14</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">http_x_requested_with</td><td style="vertical-align:top;">:</td><td><div>XMLHttpRequest</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">is_jython</td><td style="vertical-align:top;">:</td><td><div>False</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">is_pypy</td><td style="vertical-align:top;">:</td><td><div>False</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">is_source</td><td style="vertical-align:top;">:</td><td><div>True</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">local_hosts</td><td style="vertical-align:top;">:</td><td><div><table><tr><td><div>appledeMacBook-Air.local</div></td></tr><tr><td><div>::1</div></td></tr><tr><td><div>::ffff:127.0.0.1</div></td></tr><tr><td><div>127.0.0.1</div></td></tr></table></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">path_info</td><td style="vertical-align:top;">:</td><td><div>/prostudy_183/api/update_time</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">query_string</td><td style="vertical-align:top;">:</td><td><div>_signature=cb1dab662935e9cbe4e073dd28b3ff7644fe9909</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">remote_addr</td><td style="vertical-align:top;">:</td><td><div>127.0.0.1</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">remote_port</td><td style="vertical-align:top;">:</td><td><div>65087</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">request_method</td><td style="vertical-align:top;">:</td><td><div>POST</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">request_uri</td><td style="vertical-align:top;">:</td><td><div>/prostudy_183/api/update_time?_signature=cb1dab662935e9cbe4e073dd28b3ff7644fe9909</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">script_name</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">server_name</td><td style="vertical-align:top;">:</td><td><div>appledeMacBook-Air.local</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">server_port</td><td style="vertical-align:top;">:</td><td><div>8000</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">server_protocol</td><td style="vertical-align:top;">:</td><td><div>HTTP/1.1</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">server_software</td><td style="vertical-align:top;">:</td><td><div>Rocket 1.2.6</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">web2py_path</td><td style="vertical-align:top;">:</td><td><div>/Users/apple/Desktop/web2py</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">web2py_version</td><td style="vertical-align:top;">:</td><td><div>2.14.6-stable+timestamp.2016.05.10.00.21.47</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">wsgi.errors</td><td style="vertical-align:top;">:</td><td><div>&lt;open file &#x27;&lt;stderr&gt;&#x27;, mode &#x27;w&#x27; at 0x103f961e0&gt;</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">wsgi.file_wrapper</td><td style="vertical-align:top;">:</td><td><div>&lt;class wsgiref.util.FileWrapper at 0x104dac530&gt;</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">wsgi.input</td><td style="vertical-align:top;">:</td><td><div>&lt;socket._fileobject object at 0x10bd130d0&gt;</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">wsgi.multiprocess</td><td style="vertical-align:top;">:</td><td><div>False</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">wsgi.multithread</td><td style="vertical-align:top;">:</td><td><div>True</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">wsgi.run_once</td><td style="vertical-align:top;">:</td><td><div>False</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">wsgi.url_scheme</td><td style="vertical-align:top;">:</td><td><div>http</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">wsgi.version</td><td style="vertical-align:top;">:</td><td><div><table><tr><td><div>1</div></td></tr><tr><td><div>0</div></td></tr></table></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">wsgi_errors</td><td style="vertical-align:top;">:</td><td><div>&lt;open file &#x27;&lt;stderr&gt;&#x27;, mode &#x27;w&#x27; at 0x103f961e0&gt;</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">wsgi_file_wrapper</td><td style="vertical-align:top;">:</td><td><div>&lt;class wsgiref.util.FileWrapper at 0x104dac530&gt;</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">wsgi_input</td><td style="vertical-align:top;">:</td><td><div>&lt;socket._fileobject object at 0x10bd130d0&gt;</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">wsgi_multiprocess</td><td style="vertical-align:top;">:</td><td><div>False</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">wsgi_multithread</td><td style="vertical-align:top;">:</td><td><div>True</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">wsgi_run_once</td><td style="vertical-align:top;">:</td><td><div>False</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">wsgi_url_scheme</td><td style="vertical-align:top;">:</td><td><div>http</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">wsgi_version</td><td style="vertical-align:top;">:</td><td><div><table><tr><td><div>1</div></td></tr><tr><td><div>0</div></td></tr></table></div></td></tr></table></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">extension</td><td style="vertical-align:top;">:</td><td><div>html</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">folder</td><td style="vertical-align:top;">:</td><td><div>/Users/apple/Desktop/web2py/applications/prostudy_183/</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">function</td><td style="vertical-align:top;">:</td><td><div>update_time</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">global_settings</td><td style="vertical-align:top;">:</td><td><div><table><tr><td style="font-weight:bold;vertical-align:top;">app_folders</td><td style="vertical-align:top;">:</td><td><div>set([&#x27;/Users/apple/Desktop/web2py/applications/prostudy_183/&#x27;, &#x27;/Users/apple/Desktop/web2py/applications/welcome/&#x27;, &#x27;/Users/apple/Desktop/web2py/applications/admin/&#x27;])</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">applications_parent</td><td style="vertical-align:top;">:</td><td><div>/Users/apple/Desktop/web2py</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">cmd_args</td><td style="vertical-align:top;">:</td><td><div><table></table></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">cmd_options</td><td style="vertical-align:top;">:</td><td><div>&lt;Values at 0x105613368: {&#x27;verbose&#x27;: False, &#x27;ip&#x27;: &#x27;127.0.0.1&#x27;, &#x27;debuglevel&#x27;: 30, &#x27;with_scheduler&#x27;: False, &#x27;shutdown_timeout&#x27;: 5, &#x27;taskbar&#x27;: False, &#x27;with_coverage&#x27;: False, &#x27;pid_filename&#x27;: &#x27;httpserver.pid&#x27;, &#x27;maxthreads&#x27;: None, &#x27;softcron&#x27;: False, &#x27;server_name&#x27;: &#x27;appledeMacBook-Air.local&#x27;, &#x27;bpython&#x27;: False, &#x27;nogui&#x27;: False, &#x27;port&#x27;: 8000, &#x27;print_errors&#x27;: False, &#x27;extcron&#x27;: False, &#x27;runcron&#x27;: False, &#x27;run_system_tests&#x27;: False, &#x27;test&#x27;: None, &#x27;folder&#x27;: &#x27;/Users/apple/Desktop/web2py&#x27;, &#x27;config&#x27;: &#x27;&#x27;, &#x27;minthreads&#x27;: None, &#x27;shell&#x27;: None, &#x27;run&#x27;: &#x27;&#x27;, &#x27;log_filename&#x27;: &#x27;httpserver.log&#x27;, &#x27;profiler_dir&#x27;: None, &#x27;args&#x27;: [&#x27;&#x27;], &#x27;socket_timeout&#x27;: 5, &#x27;ssl_ca_certificate&#x27;: None, &#x27;scheduler&#x27;: None, &#x27;interfaces&#x27;: None, &#x27;ssl_private_key&#x27;: &#x27;&#x27;, &#x27;gae&#x27;: None, &#x27;password&#x27;: &#x27;******&#x27;, &#x27;request_queue_size&#x27;: 5, &#x27;ssl_certificate&#x27;: &#x27;&#x27;, &#x27;cronjob&#x27;: False, &#x27;numthreads&#x27;: None, &#x27;quiet&#x27;: False, &#x27;import_models&#x27;: False, &#x27;timeout&#x27;: 10, &#x27;plain&#x27;: False, &#x27;nobanner&#x27;: False}&gt;</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">db_sessions</td><td style="vertical-align:top;">:</td><td><div>set([])</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">debugging</td><td style="vertical-align:top;">:</td><td><div>False</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">gluon_parent</td><td style="vertical-align:top;">:</td><td><div>/Users/apple/Desktop/web2py</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">is_jython</td><td style="vertical-align:top;">:</td><td><div>False</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">is_pypy</td><td style="vertical-align:top;">:</td><td><div>False</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">is_source</td><td style="vertical-align:top;">:</td><td><div>True</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">local_hosts</td><td style="vertical-align:top;">:</td><td><div><table><tr><td><div>appledeMacBook-Air.local</div></td></tr><tr><td><div>::1</div></td></tr><tr><td><div>::ffff:127.0.0.1</div></td></tr><tr><td><div>127.0.0.1</div></td></tr></table></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">web2py_version</td><td style="vertical-align:top;">:</td><td><div>2.14.6-stable+timestamp.2016.05.10.00.21.47</div></td></tr></table></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">is_https</td><td style="vertical-align:top;">:</td><td><div>False</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">is_local</td><td style="vertical-align:top;">:</td><td><div>True</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">is_restful</td><td style="vertical-align:top;">:</td><td><div>False</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">is_scheduler</td><td style="vertical-align:top;">:</td><td><div>False</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">is_shell</td><td style="vertical-align:top;">:</td><td><div>False</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">now</td><td style="vertical-align:top;">:</td><td><div>datetime.datetime(2016, 12, 6, 14, 26, 31, 800642)</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">raw_args</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">raw_extension</td><td style="vertical-align:top;">:</td><td><div>None</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">url</td><td style="vertical-align:top;">:</td><td><div>/prostudy_183/api/update_time</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">utcnow</td><td style="vertical-align:top;">:</td><td><div>datetime.datetime(2016, 12, 6, 22, 26, 31, 800650)</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">wsgi</td><td style="vertical-align:top;">:</td><td><div>&lt;gluon.main.LazyWSGI object at 0x10bf52d10&gt;</div></td></tr></table></div>'
+tRp58
+sS'frames'
+p59
+(lp60
+(dp61
+S'file'
+p62
+S'/Users/apple/Desktop/web2py/gluon/restricted.py'
+p63
+sS'dump'
+p64
+(dp65
+S'environment'
+p66
+S"{'A': <class 'gluon.html.A'>, 'ANY_OF': <class 'gluon.validators.ANY_OF'>, 'ASSIGNJS': <function ASSIGNJS>, 'AppConfig': <function AppConfig>, 'Auth': <class 'gluon.tools.Auth'>, 'B': <class 'gluon.html.B'>, 'BEAUTIFY': <class 'gluon.html.BEAUTIFY'>, 'BODY': <class 'gluon.html.BODY'>, 'BR': <class 'gluon.html.BR'>, 'BUTTON': <class 'gluon.html.BUTTON'>, ...}"
+p67
+sS'ccode'
+p68
+S'<code object <module> at 0x10bf65a08, file "/Use...cations/prostudy_183/controllers/api.py", line 3>'
+p69
+ssS'lnum'
+p70
+I227
+sS'lines'
+p71
+(dp72
+I224
+S'            ccode = code'
+p73
+sI225
+S'        else:'
+p74
+sI226
+S'            ccode = compile2(code, layer)'
+p75
+sI227
+S'        exec ccode in environment'
+p76
+sI228
+S'    except HTTP:'
+p77
+sI229
+S'        raise'
+p78
+sI230
+S'    except RestrictedError:'
+p79
+sI231
+S'        # do not encapsulate (obfuscate) the original RestrictedError'
+p80
+sI222
+S'    try:'
+p81
+sI223
+S'        if isinstance(code, types.CodeType):'
+p82
+ssS'call'
+p83
+S"(code='# Create by Weikai Wu\\n\\nfrom datetime import time...Wu\\n\\nresponse._vars=response._caller(update_time)\\n', environment={'A': <class 'gluon.html.A'>, 'ANY_OF': <class 'gluon.validators.ANY_OF'>, 'ASSIGNJS': <function ASSIGNJS>, 'AppConfig': <function AppConfig>, 'Auth': <class 'gluon.tools.Auth'>, 'B': <class 'gluon.html.B'>, 'BEAUTIFY': <class 'gluon.html.BEAUTIFY'>, 'BODY': <class 'gluon.html.BODY'>, 'BR': <class 'gluon.html.BR'>, 'BUTTON': <class 'gluon.html.BUTTON'>, ...}, layer='/Users/apple/Desktop/web2py/applications/prostudy_183/controllers/api.py')"
+p84
+sS'func'
+p85
+S'restricted'
+p86
+sa(dp87
+g62
+S'/Users/apple/Desktop/web2py/applications/prostudy_183/controllers/api.py'
+p88
+sg64
+(dp89
+sg70
+I382
+sg71
+(dp90
+I371
+S''
+sI372
+S''
+sI373
+S'def check_graph_versus():'
+p91
+sI374
+S'    rows = db(db.task.user_email == auth.user.email).select(db.task.ALL, orderby=~db.task.created_on)'
+p92
+sI375
+S'    has_graph_versus = True'
+p93
+sI376
+S'    if len(rows) is 0:'
+p94
+sI377
+S'        has_graph_versus = False'
+p95
+sI378
+S'    return response.json(dict(has_graph_versus=has_graph_versus))'
+p96
+sI379
+S''
+sI380
+S'# Create by Weikai Wu'
+p97
+ssg83
+S'()'
+p98
+sg85
+S'<module>'
+p99
+sa(dp100
+g62
+S'/Users/apple/Desktop/web2py/gluon/globals.py'
+p101
+sg64
+(dp102
+S'self'
+p103
+S'undefined'
+p104
+sS'f'
+S'<function update_time>'
+p105
+ssg70
+I417
+sg71
+(dp106
+I416
+S'        self._vars = None'
+p107
+sI417
+S'        self._caller = lambda f: f()'
+p108
+sI418
+S'        self._view_environment = None'
+p109
+sI419
+S'        self._custom_commit = None'
+p110
+sI420
+S'        self._custom_rollback = None'
+p111
+sI421
+S"        self.generic_patterns = ['*']"
+p112
+sI412
+S"        self.flash = ''            # used by the default view layout"
+p113
+sI413
+S'        self.meta = Storage()      # used by web2py_ajax.html'
+p114
+sI414
+S'        self.menu = []             # used by the default view layout'
+p115
+sI415
+S'        self.files = []            # used by web2py_ajax.html'
+p116
+ssg83
+S'(f=<function update_time>)'
+p117
+sg85
+S'<lambda>'
+p118
+sa(dp119
+g62
+S'/Users/apple/Desktop/web2py/gluon/tools.py'
+p120
+sg64
+(dp121
+S'action'
+p122
+S'<function update_time>'
+p123
+sS'a'
+S'()'
+p124
+sS'b'
+g45
+ssg70
+I4241
+sg71
+(dp125
+I4236
+S'                    flag = condition'
+p126
+sI4237
+S'                if not flag:'
+p127
+sI4238
+S'                    current.session.flash = self.messages.access_denied'
+p128
+sI4239
+S'                    return call_or_redirect('
+p129
+sI4240
+S'                        self.settings.on_failed_authorization)'
+p130
+sI4241
+S'                return action(*a, **b)'
+p131
+sI4242
+S'            f.__doc__ = action.__doc__'
+p132
+sI4243
+S'            f.__name__ = action.__name__'
+p133
+sI4244
+S'            f.__dict__.update(action.__dict__)'
+p134
+sI4245
+S'            return f'
+p135
+ssg83
+S'(*a=(), **b={})'
+p136
+sg85
+S'f'
+sa(dp137
+g62
+S'/Users/apple/Desktop/web2py/applications/prostudy_183/controllers/api.py'
+p138
+sg64
+(dp139
+S'global request'
+p140
+S"<Storage {'_vars': <Storage {'time_remained': '6...pple/Desktop/web2py/applications/prostudy_183/'}>"
+p141
+sS'db.task'
+p142
+S'<Table task (id, user_email, task_content, categ...eated_on, updated_on, time_remained, time_total)>'
+p143
+sS'].time_total'
+p144
+g104
+sS'global db'
+p145
+S'<DAL uri="sqlite://storage.sqlite">'
+p146
+sS'request.vars'
+p147
+S"<Storage {'time_remained': '600', 'task_id': '18...e073dd28b3ff7644fe9909', 'time_total': 'update'}>"
+p148
+sS'request.vars.task_id'
+p149
+S"'181'"
+p150
+sS'time_total'
+p151
+g104
+ssg70
+I131
+sg71
+(dp152
+I128
+S'    time = int(request.vars.time_remained)'
+p153
+sI129
+S'    db(db.task.id == request.vars.task_id).update(time_remained=time)'
+p154
+sI130
+S'    if request.vars.time_total:'
+p155
+sI131
+S'        time_total = db.task[request.vars.task_id].time_total'
+p156
+sI132
+S'        time_total += time'
+p157
+sI133
+S'        db(db.task.id == request.vars.task_id).update(time_total=time_total)'
+p158
+sI134
+S"    return 'ok'"
+p159
+sI135
+S''
+sI126
+S'@auth.requires_signature()'
+p160
+sI127
+S'def update_time():'
+p161
+ssg83
+S'()'
+p162
+sg85
+S'update_time'
+p163
+sasS'pyver'
+p164
+S'Python 2.6.9: /System/Library/Frameworks/Python.framework/Versions/2.6/bin/python2.6 (prefix: /System/Library/Frameworks/Python.framework/Versions/2.6)'
+p165
+sS'session'
+p166
+g57
+(S's\x00\n\x00\x00<div><table><tr><td style="font-weight:bold;vertical-align:top;">auth</td><td style="vertical-align:top;">:</td><td><div><table><tr><td style="font-weight:bold;vertical-align:top;">expiration</td><td style="vertical-align:top;">:</td><td><div>3600</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">hmac_key</td><td style="vertical-align:top;">:</td><td><div>ab635911-30da-4de0-b4c3-9a6b29e3f7f0</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">last_visit</td><td style="vertical-align:top;">:</td><td><div>datetime.datetime(2016, 12, 6, 14, 22, 37, 272527)</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">remember_me</td><td style="vertical-align:top;">:</td><td><div>False</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">user</td><td style="vertical-align:top;">:</td><td><div><table><tr><td style="font-weight:bold;vertical-align:top;">email</td><td style="vertical-align:top;">:</td><td><div>wwu39@ucsc.edu</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">first_name</td><td style="vertical-align:top;">:</td><td><div>Weikai</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">id</td><td style="vertical-align:top;">:</td><td><div>3L</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">last_name</td><td style="vertical-align:top;">:</td><td><div>Wu</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">registration_id</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">registration_key</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">reset_password_key</td><td style="vertical-align:top;">:</td><td><div></div></td></tr></table></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">user_groups</td><td style="vertical-align:top;">:</td><td><div><table><tr><td style="font-weight:bold;vertical-align:top;">3</td><td style="vertical-align:top;">:</td><td><div>user_3</div></td></tr></table></div></td></tr></table></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">flash</td><td style="vertical-align:top;">:</td><td><div>None</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">last_orderby</td><td style="vertical-align:top;">:</td><td><div>None</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">last_query</td><td style="vertical-align:top;">:</td><td><div>db.record.id&gt;0</div></td></tr></table></div>'
+tRp167
+sS'etype'
+p168
+S"<type 'exceptions.AttributeError'>"
+p169
+sS'date'
+p170
+S'Tue Dec  6 14:26:31 2016'
+p171
+sS'response'
+p172
+g57
+(S's.\x1f\x00\x00<div><table><tr><td style="font-weight:bold;vertical-align:top;">body</td><td style="vertical-align:top;">:</td><td><div>&lt;cStringIO.StringO object at 0x10bf716f8&gt;</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">cookies</td><td style="vertical-align:top;">:</td><td><div><table><tr><td style="font-weight:bold;vertical-align:top;">session_id_prostudy_183</td><td style="vertical-align:top;">:</td><td><div>127.0.0.1-b6958738-1052-4328-9d5b-fef8c6937a84<table><tr><td style="font-weight:bold;vertical-align:top;">comment</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">domain</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">expires</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">httponly</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">max-age</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">path</td><td style="vertical-align:top;">:</td><td><div>/</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">secure</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">version</td><td style="vertical-align:top;">:</td><td><div></div></td></tr></table></div></td></tr></table></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">delimiters</td><td style="vertical-align:top;">:</td><td><div><table><tr><td><div>{{</div></td></tr><tr><td><div>}}</div></td></tr></table></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">files</td><td style="vertical-align:top;">:</td><td><div><table></table></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">flash</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">form_label_separator</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">formstyle</td><td style="vertical-align:top;">:</td><td><div>bootstrap3_inline</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">generic_patterns</td><td style="vertical-align:top;">:</td><td><div><table><tr><td><div>*</div></td></tr></table></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">google_analytics_id</td><td style="vertical-align:top;">:</td><td><div>None</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">headers</td><td style="vertical-align:top;">:</td><td><div><table><tr><td style="font-weight:bold;vertical-align:top;">X-Powered-By</td><td style="vertical-align:top;">:</td><td><div>web2py</div></td></tr></table></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">logo</td><td style="vertical-align:top;">:</td><td><div><a class="navbar-brand" href="#" id="web2py-logo"><b>ProStudy</b>&trade;&nbsp;</a></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">menu</td><td style="vertical-align:top;">:</td><td><div><table><tr><td><div><table><tr><td><div>Home</div></td></tr><tr><td><div>False</div></td></tr><tr><td><div>/prostudy_183/default/BG</div></td></tr><tr><td><div><table></table></div></td></tr></table></div></td></tr><tr><td><div><table><tr><td><div>APP</div></td></tr><tr><td><div>False</div></td></tr><tr><td><div>/prostudy_183/default/index</div></td></tr><tr><td><div><table></table></div></td></tr></table></div></td></tr><tr><td><div><table><tr><td><div>Help</div></td></tr><tr><td><div>False</div></td></tr><tr><td><div>/prostudy_183/default/help</div></td></tr><tr><td><div><table></table></div></td></tr></table></div></td></tr></table></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">meta</td><td style="vertical-align:top;">:</td><td><div><table><tr><td style="font-weight:bold;vertical-align:top;">author</td><td style="vertical-align:top;">:</td><td><div>Your Name &lt;you@example.com&gt;</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">description</td><td style="vertical-align:top;">:</td><td><div>a cool new app</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">generator</td><td style="vertical-align:top;">:</td><td><div>Web2py Web Framework</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">keywords</td><td style="vertical-align:top;">:</td><td><div><table><tr><td><div>web2py</div></td></tr><tr><td><div>python</div></td></tr><tr><td><div>framework</div></td></tr></table></div></td></tr></table></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">models_to_run</td><td style="vertical-align:top;">:</td><td><div><table><tr><td><div>^\\w+\\.py$</div></td></tr><tr><td><div>^api/\\w+\\.py$</div></td></tr><tr><td><div>^api/update_time/\\w+\\.py$</div></td></tr></table></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">postprocessing</td><td style="vertical-align:top;">:</td><td><div><table></table></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">session_client</td><td style="vertical-align:top;">:</td><td><div>127.0.0.1</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">session_cookie_compression_level</td><td style="vertical-align:top;">:</td><td><div>None</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">session_cookie_expires</td><td style="vertical-align:top;">:</td><td><div>None</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">session_data_name</td><td style="vertical-align:top;">:</td><td><div>session_data_prostudy_183</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">session_file</td><td style="vertical-align:top;">:</td><td><div>&lt;open file &#x27;/Users/apple/Desktop/web2py/applications/prostudy_183/sessions/034/1c8/127.0.0.1-b6958738-1052-4328-9d5b-fef8c6937a84&#x27;, mode &#x27;rb+&#x27; at 0x10bfdb300&gt;</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">session_filename</td><td style="vertical-align:top;">:</td><td><div>/Users/apple/Desktop/web2py/applications/prostudy_183/sessions/127.0.0.1-b6958738-1052-4328-9d5b-fef8c6937a84</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">session_hash</td><td style="vertical-align:top;">:</td><td><div>9c4d0c51956e4d0062f5c07f6b22f1cf</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">session_id</td><td style="vertical-align:top;">:</td><td><div>127.0.0.1-b6958738-1052-4328-9d5b-fef8c6937a84</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">session_id_name</td><td style="vertical-align:top;">:</td><td><div>session_id_prostudy_183</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">session_locked</td><td style="vertical-align:top;">:</td><td><div>True</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">session_masterapp</td><td style="vertical-align:top;">:</td><td><div>prostudy_183</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">session_new</td><td style="vertical-align:top;">:</td><td><div>False</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">session_storage_type</td><td style="vertical-align:top;">:</td><td><div>file</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">status</td><td style="vertical-align:top;">:</td><td><div>200</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">subtitle</td><td style="vertical-align:top;">:</td><td><div></div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">title</td><td style="vertical-align:top;">:</td><td><div>Prostudy 183</div></td></tr><tr><td style="font-weight:bold;vertical-align:top;">view</td><td style="vertical-align:top;">:</td><td><div>api/update_time.html</div></td></tr></table></div>'
+tRp173
+sS'locals'
+p174
+(dp175
+S'time'
+p176
+S'600'
+p177
+sssS'traceback'
+p178
+S'Traceback (most recent call last):\n  File "/Users/apple/Desktop/web2py/gluon/restricted.py", line 227, in restricted\n    exec ccode in environment\n  File "/Users/apple/Desktop/web2py/applications/prostudy_183/controllers/api.py", line 382, in <module>\n  File "/Users/apple/Desktop/web2py/gluon/globals.py", line 417, in <lambda>\n    self._caller = lambda f: f()\n  File "/Users/apple/Desktop/web2py/gluon/tools.py", line 4241, in f\n    return action(*a, **b)\n  File "/Users/apple/Desktop/web2py/applications/prostudy_183/controllers/api.py", line 131, in update_time\n    time_total = db.task[request.vars.task_id].time_total\nAttributeError: \'NoneType\' object has no attribute \'time_total\'\n'
+p179
+s.

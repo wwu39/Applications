@@ -1,0 +1,87 @@
+.hover-yellow:hover{
+    background-color: yellow;
+}
+
+
+div.absolute {
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    width: 50px;
+    height: 50px;
+}
+
+#black {
+    color: black;
+    font-style: inherit;
+}
+
+.mcompact {
+    padding: 5px;
+    font-size: 12px;
+}
+
+#mcnocaps {
+    padding: 5px;
+    font-size: 12px;
+    text-transform: none;
+}
+
+#left {
+    float: left;
+}
+
+#right {
+    float: right;
+}
+
+.loadmore {
+    padding: 3px;
+    padding-bottom: 6px;
+}
+
+.downer {
+    padding-top: 10px;
+}
+
+.selected {
+    background-color: lightyellow;
+}
+
+#my-list-group {
+    padding: 1px;
+}
+
+.boxed {
+    border: 1px solid black;
+    background-color: white;
+    padding: 2px;
+}
+
+.white {
+    color: white;
+}
+
+.row {
+    max-width: 60rem;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+#footer {
+    padding-top: 10px;
+    padding-bottom: 80px;
+    background-color:#3e3f3a;
+}
+
+.border {
+    border: 1px solid #ddd;
+    border-radius: 5px;
+}
+.color1{
+    background:#666;
+}
+
+
+
+
